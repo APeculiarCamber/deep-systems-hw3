@@ -9,6 +9,7 @@ def gp_customlinear(input1, input2, input3, dim1_0, dim1_1, device0):
     res_dl1 = th.utils.dlpack.to_dlpack(res1)
     gpk.customlinear(input1_dl, input2_dl, input3_dl, res_dl1)
     return res1
+
 def gp_customlinear_back(input1, input2, input3, dim1_0, dim1_1, dim2_0, dim2_1, dim3_0, device0):
     input1_dl = th.utils.dlpack.to_dlpack(input1)
     input2_dl = th.utils.dlpack.to_dlpack(input2)

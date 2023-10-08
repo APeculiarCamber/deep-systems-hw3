@@ -2,105 +2,163 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import pytorch_apis
+import torchvision
 
-# Define a custom linear function with explicit weights and biases
-class CustomLinearFunction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, input, weight, bias):
-        ctx.save_for_backward(input, weight)
-        output = torch.matmul(input, weight.t()) + bias
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input, weight = ctx.saved_tensors
-        grad_input = grad_weight = grad_bias = None
-        if ctx.needs_input_grad[0]:
-            grad_input = torch.matmul(grad_output, weight)
-        if ctx.needs_input_grad[1]:
-            grad_weight = torch.matmul(grad_output.t(), input)
-        if ctx.needs_input_grad[2]:
-            grad_bias = grad_output.sum(0)
-        return grad_input, grad_weight, grad_bias
-
-# Define a LeNet-300-100-like neural network
+# Base non-custom lenet for comparison
 class LeNet300100(nn.Module):
-    def __init__(self, in_features, hidden1_features, hidden2_features, out_features):
+    def __init__(self, in_dim, hidden1_features, hidden2_features, out_features):
         super(LeNet300100, self).__init__()
 
-        self.weight1 = nn.Parameter(torch.rand(in_features, hidden1_features))
-        self.bias1 = nn.Parameter(torch.rand(hidden1_features))
+        self.conv = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(32, 64, kernel_size=3),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
+        
+        final_dim = ((((in_dim - 2) // 2) - 2) // 2)
+        self.fc_in_size = 64 * final_dim * final_dim
+        self.weight1 = nn.Parameter(torch.rand(self.fc_in_size, hidden1_features))
+        self.bias1 = nn.Parameter(torch.rand(1, hidden1_features))
         self.weight2 = nn.Parameter(torch.rand(hidden1_features, hidden2_features))
-        self.bias2 = nn.Parameter(torch.rand(hidden2_features))
+        self.bias2 = nn.Parameter(torch.rand(1, hidden2_features))
         self.weight3 = nn.Parameter(torch.rand(hidden2_features, out_features))
-        self.bias3 = nn.Parameter(torch.rand(out_features))
+        self.bias3 = nn.Parameter(torch.rand(1, out_features))
         self.relu = nn.ReLU()
 
+        nn.init.kaiming_uniform_(self.weight1, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.weight2, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.weight3, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.bias1, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.bias2, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.bias3, mode='fan_in', nonlinearity='relu')
+
+        self.fc1 = nn.Linear(64 * 5 * 5, 300)
+        self.fc2 = nn.Linear(300, 100)
+        self.fc3 = nn.Linear(100, 10)
+
+
     def forward(self, x):
-        x = torch.matmul(x, self.weight1) + self.bias1.unsqueeze(0)
+        x = self.conv(x)
+        x = x.view(-1, self.fc_in_size)
+
+        x = torch.matmul(x, self.weight1) + self.bias1
         x = self.relu(x)
-        x = torch.matmul(x, self.weight2) + self.bias2.unsqueeze(0)
+        x = torch.matmul(x, self.weight2) + self.bias2
         x = self.relu(x)
-        x = torch.matmul(x, self.weight3) + self.bias3.unsqueeze(0)
+        x = torch.matmul(x, self.weight3) + self.bias3
+        '''
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        x = self.relu(x)
+        x = self.fc3(x)
+        '''
         return x
 
-# Define a LeNet-300-100-like neural network
+# Lenet-300-100 implemented with custom cuda linear layers
 class CustomLeNet300100(nn.Module):
-    def __init__(self, in_features, hidden1_features, hidden2_features, out_features):
+    def __init__(self, in_dim, hidden1_features, hidden2_features, out_features):
         super(CustomLeNet300100, self).__init__()
 
-        self.weight1 = nn.Parameter(torch.rand(in_features, hidden1_features))
-        self.bias1 = nn.Parameter(torch.rand(hidden1_features))
+        self.conv = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(32, 64, kernel_size=3),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
+        
+        final_dim = ((((in_dim - 2) // 2) - 2) // 2)
+        self.fc_in_size = 64 * final_dim * final_dim
+        self.weight1 = nn.Parameter(torch.rand(self.fc_in_size, hidden1_features))
+        self.bias1 = nn.Parameter(torch.rand(1, hidden1_features))
         self.weight2 = nn.Parameter(torch.rand(hidden1_features, hidden2_features))
-        self.bias2 = nn.Parameter(torch.rand(hidden2_features))
+        self.bias2 = nn.Parameter(torch.rand(1, hidden2_features))
         self.weight3 = nn.Parameter(torch.rand(hidden2_features, out_features))
-        self.bias3 = nn.Parameter(torch.rand(out_features))
+        self.bias3 = nn.Parameter(torch.rand(1, out_features))
         self.relu = nn.ReLU()
 
+        nn.init.kaiming_uniform_(self.weight1, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.weight2, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.weight3, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.bias1, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.bias2, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.bias3, mode='fan_in', nonlinearity='relu')
+
+
     def forward(self, x):
-        x = pytorch_apis.customlinear(x, self.weight1, self.bias1, x.device)
+        x = self.conv(x)
+        x = x.view(-1, self.fc_in_size)
+
+        x = pytorch_apis.customlinear(x, self.weight1, self.bias1.squeeze(), x.device)
         x = self.relu(x)
-        x = pytorch_apis.customlinear(x, self.weight2, self.bias2, x.device)
+        x = pytorch_apis.customlinear(x, self.weight2, self.bias2.squeeze(), x.device)
         x = self.relu(x)
-        x = pytorch_apis.customlinear(x, self.weight3, self.bias3, x.device)
+        x = pytorch_apis.customlinear(x, self.weight3, self.bias3.squeeze(), x.device)
         return x
 
-def run_guy(model, x_train):
+def load_mnist(batch_size):
+    train_trans = torchvision.transforms.Compose([
+                            torchvision.transforms.ToTensor(),
+                            torchvision.transforms.RandomRotation(degrees=(-25, 25)),
+                            torchvision.transforms.Normalize(
+                                (0.1307,), (0.3081,)) # taken from online recomendation
+                            ])
+
+    train_loader = torch.utils.data.DataLoader(
+    torchvision.datasets.MNIST('./DATA/', train=True, download=True,
+                                transform=train_trans),
+    batch_size=batch_size, shuffle=True,  num_workers=2, persistent_workers=True)
+
+    test_loader = torch.utils.data.DataLoader(
+    torchvision.datasets.MNIST('./DATA/', train=False, download=True,
+                                transform=train_trans),
+    batch_size=batch_size, shuffle=True, num_workers=2, persistent_workers=True)
+
+    return train_loader, test_loader
+
+
+def train_model(model, train_data, test_data):
     torch.manual_seed(101)
-    # Create a toy dataset
-    y_train = x_train.clone()
+    
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    num_epochs = 10
 
-    # Define the model and loss function
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
-
-    # Training loop
-    num_epochs = 2000
+    model.cuda()
+    
     for epoch in range(num_epochs):
-        # Forward pass
-        outputs = model(x_train)
-        loss = criterion(outputs, y_train)
+        running_loss = 0.0
 
-        # Backward pass and optimization
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        for inputs, labels in train_data:
+            inputs, labels = inputs.cuda(), labels.cuda()
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
 
-        if (epoch + 1) % 100 == 0:
-            print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
-        if (epoch == num_epochs // 2):
-            optimizer = optim.Adam(model.parameters(), lr=0.001)
+            running_loss += loss.item()
+        print(f'Epoch {epoch+1}, Loss: {running_loss}')
 
-    # Test the trained model
-    x_test = torch.tensor([[4.0, 5.0, 6.0]], dtype=torch.float32)
-    predicted = model(x_test)
-    print(f"Predicted: {predicted.detach().numpy()}")
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for inputs, labels in test_data:
+            inputs, labels = inputs.cuda(), labels.cuda()
+            outputs = model(inputs)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
 
-    return model.weight1.detach().numpy(),model.weight2.detach().numpy(),model.weight3.detach().numpy()
+    print(f'Accuracy on test: {100 * correct / total}%')
+
 
 torch.manual_seed(101)
-model = LeNet300100(in_features=3, hidden1_features=6, hidden2_features=4, out_features=3)
-x_train = ((torch.rand(1000, 3)) * 10.0) + 1.0
-
-w1, w2, w3 = run_guy(model, x_train)
-print(w1)
+model = CustomLeNet300100(in_dim=28, hidden1_features=300, hidden2_features=100, out_features=10)
+train_data, test_data = load_mnist(256)
+train_model(model, train_data, test_data)
